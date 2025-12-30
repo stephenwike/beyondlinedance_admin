@@ -1,33 +1,25 @@
 # Current Task
 
-## Status
-Event planning and lesson definition workflow is functionally complete.
+## Goal
+Complete and harden the admin workflow for adding one-off / special events, including after-midnight support.
 
----
+## Definition of done
+- Admin can create a one-off Event occurrence from `/admin/add-event`
+- Event Type dropdown options include venue label for identification
+- Selecting an Event Type auto-fills:
+  - startTime / endTime from Event Type defaults
+  - endDayOffset checkbox from Event Type endDayOffset
+- Event creation persists endDayOffset onto the Event doc
+- Event Planner can edit and persist endDayOffset, cancellation, substitute, and lessons
+- Save from Event Planner redirects to `/admin`
 
-## Completed
-
-- Manual creation of Event documents from virtual occurrences
-- Lesson planning UI with add/remove functionality
-- Lesson time support per lesson
-- Dance search via `/api/dances`
-- Manual dance entry and clearing
-- Event cancellation with optional note
-- Substitute instructor support
-- Admin save → redirect to dashboard
-- Robust handling of schema drift between API and UI
-
----
-
-## Open Questions / Future Enhancements
-
-- Should lesson `time` be validated server-side (format and bounds)?
-- Should cancelled events hide lesson UI entirely?
-- Should lesson times auto-snap to configurable intervals (e.g. 15/30 minutes)?
-- Should lesson rows be reorderable (drag & drop)?
-- Should substitute instructors become first-class entities?
-- Should the admin dashboard visually differentiate:
-  - Cancelled events
-  - Fully planned vs partially planned events
-
----
+## TODOs / Open questions
+- Ensure `/api/event-types` always returns `endDayOffset` (and normalizes it to 0|1).
+- Dashboard display:
+  - show “(+1 day)” when endDayOffset=1
+  - ensure sorting still behaves correctly for after-midnight events
+- Decide whether to add a “Bar close” helper (UI shortcut) without adding a sentinel string value.
+- Event Type admin edit UI:
+  - allow setting `endDayOffset` on event_types (defaults), rather than manual Mongo edits.
+- Data consistency:
+  - decide whether to always store `durationMinutes` on events (or derive it on-demand).

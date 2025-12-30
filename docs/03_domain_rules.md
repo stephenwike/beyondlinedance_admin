@@ -1,75 +1,82 @@
-# Domain Rules
+# Domain Rules (Ground Truth)
 
-This document defines core business rules for BeyondLineDance.
+## 1) Planned vs Unplanned vs Cancelled
+An occurrence is considered:
 
----
+### UNPLANNED
+- No Event doc exists yet, OR
+- Event exists but has **zero lesson slots**, OR
+- Event exists and has lesson slots, but **any lesson slot is missing a dance name** (empty or null)
 
-## Event Types vs Events
+### PLANNED
+- Event doc exists AND
+- Event is NOT cancelled AND
+- Every lesson slot has a non-empty dance name
 
-- **Event Types**
-  - Define recurring schedules and defaults
-  - Do not represent specific dates
-- **Events**
-  - Represent a single, planned occurrence
-  - Are created manually by an admin
-  - Override Event Type defaults as needed
+### CANCELLED
+- Event doc exists AND
+- `isCancelled === true`
+- Cancellation note is optional (`cancelNote`)
 
----
-
-## Virtual Occurrences
-
-- Future occurrences derived from Event Type frequencies are virtual.
-- Virtual occurrences:
-  - Are displayed in the admin dashboard
-  - Do not exist in the database
-- A virtual occurrence becomes real only when planned.
+Cancelled events are treated as “handled” (not “unplanned”).
 
 ---
 
-## Event Documents
-
-- Each Event document represents one occurrence.
-- Identity is defined by:
-  - `eventTypeId`
-  - `date`
-  - `startTime`
-- Event documents may include:
-  - `startTime` (override)
-  - `endTime` (override)
-  - `isCancelled`
-  - `cancelNote`
-  - `substitute`
-  - `lessons[]`
+## 2) Events are created manually
+- The system never bulk-generates Event docs for occurrences.
+- Frequencies generate **virtual occurrences**.
+- Admin converts a virtual occurrence into an Event doc via planning workflows.
 
 ---
 
-## Lessons
+## 3) Virtual occurrences
+Virtual occurrences are derived from:
+- active Event Types + active Frequencies
 
-- Lessons belong exclusively to an Event.
-- Lessons are optional unless the event is planned and not cancelled.
-- Lesson fields:
-  - `time` — explicit start time for the lesson
-  - `dance` — name of the dance
-  - `level` — difficulty level
-  - `link` — stepsheet or reference URL
-- Lesson times are independent and not auto-derived.
-- Empty or partially filled lessons are allowed during planning.
+Deterministic identity for a virtual occurrence:
+- `eventTypeId + date`
+
+If an Event doc exists for the same `eventTypeId + date`, the persisted Event wins.
 
 ---
 
-## Cancellation
+## 4) Event occurrence overrides
+Event occurrence fields (`startTime`, `endTime`, `endDayOffset`) can override defaults from the Event Type.
 
-- Cancelled events:
-  - Must persist as Event documents
-  - May include a cancellation note
-  - Are considered “planned” even without lessons
+Defaults:
+- New occurrences should populate `startTime` and derived `endTime` from:
+  - `event_types.defaultStartTime`
+  - `event_types.defaultDurationMinutes`
+- `endDayOffset` defaults from:
+  - `event_types.endDayOffset` (default 0)
+
+---
+
+## 5) After midnight (endDayOffset)
+- `endDayOffset: 0` means `endTime` is on the same date
+- `endDayOffset: 1` means `endTime` is on the next day
+
+Validation rule:
+- If `endDayOffset === 0`, `endTime` must be after `startTime` (same-day range).
+- If `endDayOffset === 1`, `endTime` can be earlier than `startTime` (next-day range).
 
 ---
 
-## Substitutes
+## 6) Lessons
+- Lessons are authored on the Event Planner.
+- Lesson slots may be blank (dance/level/link/time can be null).
+- Dance search can populate:
+  - `dance` (danceName)
+  - `link` (stepsheet)
+  - `level` can be manually set (difficulty may be used optionally later)
 
-- Substitute instructors are optional.
-- Stored as a freeform name string.
-- No instructor entity is required at this time.
+Lesson label is **Time** (not “Start Time”).
 
 ---
+
+## 7) Cancellation and substitute rules
+- If `isCancelled === true`, event is considered “handled”.
+- Cancelled events may still have lessons stored, but they do not affect “planned” status.
+- Substitute:
+  - If a substitute is used, store the name in `substitute` (string).
+  - Substitute is independent of cancellation.
