@@ -1,37 +1,75 @@
-# Domain Rules (Ground Truth)
+# Domain Rules
 
-## Planned vs Unplanned
-An occurrence is considered:
+This document defines core business rules for BeyondLineDance.
 
-- UNPLANNED if:
-  - No Event document exists yet, OR
-  - The Event has zero lesson slots, OR
-  - Any lesson slot is missing a dance name
+---
 
-- PLANNED if:
-  - An Event document exists AND
-  - All lesson slots have a dance name
+## Event Types vs Events
 
-- CANCELLED if:
-  - The Event exists and is marked cancelled
-  - Event Occurances can be cancelled, not event types.
+- **Event Types**
+  - Define recurring schedules and defaults
+  - Do not represent specific dates
+- **Events**
+  - Represent a single, planned occurrence
+  - Are created manually by an admin
+  - Override Event Type defaults as needed
 
-## Virtual occurrence generation
-Given:
-- Active EventTypes
-- Defined Frequencies
-- Valid date range [from, to]
-- Undefined [from, to] are inclusive.
+---
 
-Generate:
-- Virtual occurrences from Frequencies
-- Each occurrence is identified by:
-  - eventTypeId + date
+## Virtual Occurrences
 
-## Admin planning flow
-- Admin sees virtual occurrences (planned + unplanned)
-- Unplanned occurrences show a "Plan lesson" action
-- Plan lesson opens /admin/plan-lesson with editable fields
-- Saving creates (or upserts) an Event document
-- Admin is redirected to the Event Planner to add lessons
-- In /admin/plan-lesson event-type information is uneditable.
+- Future occurrences derived from Event Type frequencies are virtual.
+- Virtual occurrences:
+  - Are displayed in the admin dashboard
+  - Do not exist in the database
+- A virtual occurrence becomes real only when planned.
+
+---
+
+## Event Documents
+
+- Each Event document represents one occurrence.
+- Identity is defined by:
+  - `eventTypeId`
+  - `date`
+  - `startTime`
+- Event documents may include:
+  - `startTime` (override)
+  - `endTime` (override)
+  - `isCancelled`
+  - `cancelNote`
+  - `substitute`
+  - `lessons[]`
+
+---
+
+## Lessons
+
+- Lessons belong exclusively to an Event.
+- Lessons are optional unless the event is planned and not cancelled.
+- Lesson fields:
+  - `time` — explicit start time for the lesson
+  - `dance` — name of the dance
+  - `level` — difficulty level
+  - `link` — stepsheet or reference URL
+- Lesson times are independent and not auto-derived.
+- Empty or partially filled lessons are allowed during planning.
+
+---
+
+## Cancellation
+
+- Cancelled events:
+  - Must persist as Event documents
+  - May include a cancellation note
+  - Are considered “planned” even without lessons
+
+---
+
+## Substitutes
+
+- Substitute instructors are optional.
+- Stored as a freeform name string.
+- No instructor entity is required at this time.
+
+---

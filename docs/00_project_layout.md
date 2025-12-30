@@ -8,25 +8,21 @@ This document describes the current folder structure and responsibilities of the
 
 ```text
 /
-├─ app/                    # Next.js App Router
-├─ docs/                   # Project documentation (source of truth)
-├─ lib/                    # Shared utilities (db, api helpers)
-├─ public/                 # Static assets
-├─ package.json
-├─ tsconfig.json
-└─ next.config.js
+## Admin Planning & Events
 
-# Project Layout
-
-This document describes the current folder structure and responsibilities of the project.
-
----
-
-## Root
-
-```text
-/
-├─ app/                    # Next.js App Router
+app/
+├─ admin/
+│  ├─ plan-lesson/          # Convert virtual occurrence → Event
+│  ├─ events/
+│  │  └─ [id]/              # Event Planner (lessons, cancellation, substitute)
+│  └─ page.tsx              # Lesson Plans dashboard
+│
+├─ api/
+│  ├─ events/
+│  │  ├─ route.ts           # Create / list events
+│  │  └─ [id]/route.ts      # Get / update a single event
+│  └─ dances/               # Search LDCO dance database
+│
 ├─ docs/                   # Project documentation (source of truth)
 ├─ lib/                    # Shared utilities (db, api helpers)
 ├─ public/                 # Static assets
