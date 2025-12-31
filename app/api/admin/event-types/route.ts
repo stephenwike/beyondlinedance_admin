@@ -21,7 +21,6 @@ export async function POST(req: Request) {
         const price = normalizeNullableString(body.price) ?? "";
 
         const isActive = typeof body.isActive === "boolean" ? body.isActive : false;
-        const isOneOff = typeof body.isOneOff === "boolean" ? body.isOneOff : !isActive;
 
         if (!title) return NextResponse.json({ error: "title is required" }, { status: 400 });
         if (!ObjectId.isValid(venueId)) return NextResponse.json({ error: "Invalid venueId" }, { status: 400 });
@@ -39,14 +38,11 @@ export async function POST(req: Request) {
             venueId: venueObjId,
 
             // defaults may be filled later in the event type admin screen
+            // TODO: This seems wrong... If I make an venue, it doesn't need an event type right away. If I'm creating an event type, the time should be known, and can be modified later if needed.
             defaultStartTime: "",
             defaultDurationMinutes: 0,
 
             isActive,
-            isOneOff,
-
-            createdAt: new Date(),
-            updatedAt: new Date(),
         });
 
         return NextResponse.json({ ok: true, eventTypeId: String(res.insertedId) });

@@ -13,6 +13,12 @@ function ymd(d: Date) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function ymdMinusDays(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return ymd(d);
+}
+
 function freqSummary(f: any) {
   if (f.kind === "WEEKLY") return `Weekly: ${(f.byDay ?? []).join(", ")}`;
   if (f.kind === "MONTHLY_NTH_WEEKDAY") return `Monthly: ${f.nth} ${f.weekday}`;
@@ -24,12 +30,6 @@ function asStr(v: any) {
   return String(v);
 }
 
-/**
- * Mongo ObjectId sometimes arrives as:
- * - string "69536bd4..."
- * - object { $oid: "69536bd4..." }
- * - object with toString()
- */
 function idToString(v: any): string {
   if (!v) return "";
   if (typeof v === "string") return v;
@@ -71,7 +71,6 @@ function isUnplannedRow(r: any) {
 
   if (typeof r?.unplanned === "boolean") return r.unplanned;
 
-  // No event _id => virtual occurrence => unplanned
   const eventId = idToString(r?._id);
   if (!eventId) return true;
 
@@ -91,6 +90,28 @@ export default function LessonPlansDashboard() {
   const [err, setErr] = useState<string | null>(null);
   const [onlyUnplanned, setOnlyUnplanned] = useState(true);
 
+  const [commitCount, setCommitCount] = useState<number | null>(null);
+  const [commitErr, setCommitErr] = useState<string | null>(null);
+
+  async function loadCommitCount() {
+    setCommitErr(null);
+    try {
+      const fromPast = ymdMinusDays(14);
+      const toToday = ymd(new Date());
+
+      const res = await fetch(
+        `/api/admin/lesson-commit-queue?countOnly=true&from=${encodeURIComponent(fromPast)}&to=${encodeURIComponent(toToday)}`,
+        { cache: "no-store" }
+      );
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setCommitCount(Number(data?.count ?? 0));
+    } catch (e: any) {
+      setCommitErr(e.message ?? String(e));
+      setCommitCount((prev) => (typeof prev === "number" ? prev : 0));
+    }
+  }
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -102,6 +123,8 @@ export default function LessonPlansDashboard() {
     } finally {
       setLoading(false);
     }
+
+    loadCommitCount();
   }
 
   useEffect(() => {
@@ -110,6 +133,7 @@ export default function LessonPlansDashboard() {
   }, []);
 
   const filtered = rows.filter((r) => (onlyUnplanned ? isUnplannedRow(r) : true));
+  const showCommitBanner = (commitCount ?? 0) > 0 || !!commitErr;
 
   return (
     <main className="p-6 space-y-5">
@@ -117,6 +141,38 @@ export default function LessonPlansDashboard() {
         <h1 className="text-2xl font-semibold">Lesson Plans</h1>
         <p className="text-gray-600 mt-1">Pick an occurrence and plan lessons, cancellations, and substitutes.</p>
       </header>
+
+      {showCommitBanner && (
+        <section className="rounded-lg border p-4 max-w-3xl space-y-2 bg-yellow-50 border-yellow-200">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-medium">Lessons to commit</div>
+              {commitErr ? (
+                <div className="text-sm text-red-700 whitespace-pre-wrap">
+                  Couldn’t load commit queue count: {commitErr}
+                </div>
+              ) : (
+                <div className="text-sm text-gray-700">
+                  {commitCount === null
+                    ? "Checking…"
+                    : commitCount === 0
+                    ? "No lessons ready right now."
+                    : `You have ${commitCount} lesson${commitCount === 1 ? "" : "s"} ready to confirm.`}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button className="border rounded px-4 py-2 text-sm bg-white" onClick={loadCommitCount} type="button">
+                Refresh
+              </button>
+              <Link className="rounded bg-black text-white px-4 py-2" href="/admin/commit-lessons">
+                Review
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="rounded-lg border p-4 space-y-3 max-w-3xl">
         <div className="grid grid-cols-2 gap-3">
@@ -143,6 +199,10 @@ export default function LessonPlansDashboard() {
           <Link className="border rounded px-4 py-2 text-sm" href="/admin/add-event">
             + Add one-off event
           </Link>
+
+          <Link className="border rounded px-4 py-2 text-sm" href="/admin/commit-lessons">
+            Commit lessons
+          </Link>
         </div>
 
         {err && <p className="text-red-600 whitespace-pre-wrap">{err}</p>}
@@ -150,9 +210,6 @@ export default function LessonPlansDashboard() {
 
       <section className="space-y-2">
         {filtered.map((r) => {
-          // Persisted events must have a real Mongo ObjectId.
-          // Virtual occurrences use a composite key (e.g. "<eventTypeId>|<date>|<time>") in _id,
-          // which should NOT route to /admin/events/[id].
           const eventId = idToString(r.eventId ?? r._id);
           const isPersisted = isObjectIdString(eventId);
 

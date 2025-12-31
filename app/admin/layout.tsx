@@ -11,7 +11,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                     <Link className="block text-blue-600" href="/admin/events">Calendar (Events)</Link>
                     <Link className="block text-blue-600" href="/admin/event-types">Events (Types)</Link>
                     <Link className="block text-blue-600" href="/admin/venues">Venues</Link>
-                    <Link className="block text-blue-600" href="/admin/generate">Generate Events</Link>
                 </nav>
 
                 <div className="mt-6 text-xs text-gray-500">

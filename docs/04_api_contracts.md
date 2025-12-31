@@ -83,7 +83,6 @@ Payload (typical):
 - `level` (optional)
 - `price` (optional)
 - `isActive` (boolean)
-- `isOneOff` (boolean)
 
 Returns:
 - `{ ok: true, eventTypeId: string }`

@@ -77,16 +77,13 @@ export async function POST(req: Request) {
       date,
       startTime,
       endTime,
-      endDayOffset, // ✅ persisted
+      endDayOffset,
       durationMinutes,
 
       isCancelled: false,
       cancelNote: null,
       substitute: null,
       lessons: [],
-
-      createdAt: new Date(),
-      updatedAt: new Date(),
     });
 
     return NextResponse.json({

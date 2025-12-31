@@ -96,11 +96,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
           })()
         : "");
 
-    const isCancelled =
+    const isCancelled = 
       typeof ev.isCancelled === "boolean"
-        ? ev.isCancelled
-        : typeof ev.cancelled === "boolean"
-          ? ev.cancelled
+          ? ev.isCancelled
           : false;
 
     const cancelNote =

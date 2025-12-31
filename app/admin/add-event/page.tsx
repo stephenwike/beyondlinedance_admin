@@ -20,15 +20,9 @@ type EventType = {
   venueId?: string;
   venueKey?: string;
   isActive?: boolean;
-
   defaultStartTime?: string;
   defaultDurationMinutes?: number;
-
-  // ✅ Some of your event_types already store this (per your note)
-  // Treat it as the default for new occurrences.
   endDayOffset?: 0 | 1;
-
-  isOneOff?: boolean;
 };
 
 function isYmd(s: string) {
@@ -271,7 +265,6 @@ export default function AddOneOffEventPage() {
           level: newTypeLevel.trim() || null,
           price: newTypePrice.trim() || null,
           isActive: !!newTypeActive,
-          isOneOff: !newTypeActive,
         }),
       });
 
