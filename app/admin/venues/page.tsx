@@ -1,97 +1,89 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { apiGet, apiPost } from "@/lib/api";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { apiGet } from "@/lib/api";
 
 type Venue = {
-    _id: string;
-    name: string;
-    address: string;
-    city: string;
-    state: string;
+  _id: string;
+  name: string;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
 };
 
-export default function VenuesAdminPage() {
-    const [venues, setVenues] = useState<Venue[]>([]);
-    const [err, setErr] = useState<string | null>(null);
-    const [form, setForm] = useState({ name: "", address: "", city: "Denver", state: "CO" });
-    const [saving, setSaving] = useState(false);
+function fmtVenueLine(v: Venue) {
+  const parts = [v.address, v.city, v.state].filter(Boolean);
+  return parts.length ? parts.join(", ") : "—";
+}
 
-    async function load() {
-        setErr(null);
-        try {
-            const data = await apiGet<Venue[]>("/api/venues");
-            setVenues(data);
-        } catch (e: any) {
-            setErr(e.message ?? String(e));
-        }
+export default function VenuesPage() {
+  const [venues, setVenues] = useState<Venue[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const data = await apiGet<Venue[]>("/api/venues");
+      setVenues(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      setErr(e.message ?? String(e));
+    } finally {
+      setLoading(false);
     }
+  }
 
-    useEffect(() => {
-        load();
-    }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
-    async function submit(e: React.FormEvent) {
-        e.preventDefault();
-        setSaving(true);
-        setErr(null);
-        try {
-            await apiPost("/api/venues", form);
-            setForm({ name: "", address: "", city: "Denver", state: "CO" });
-            await load();
-        } catch (e: any) {
-            setErr(e.message ?? String(e));
-        } finally {
-            setSaving(false);
-        }
-    }
+  const count = useMemo(() => venues.length, [venues]);
 
-    return (
-        <main className="p-6 space-y-6">
-            <header>
-                <h1 className="text-2xl font-semibold">Venues</h1>
-                <p className="text-gray-600 mt-1">Create venues used by event types.</p>
-            </header>
+  return (
+    <main className="p-6 space-y-5">
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Venues</h1>
+          <p className="text-gray-600 mt-1">{count} venue{count === 1 ? "" : "s"}</p>
+        </div>
 
-            <section className="rounded-lg border p-4">
-                <h2 className="font-medium">Add venue</h2>
-                <form onSubmit={submit} className="mt-3 grid gap-3 max-w-xl">
-                    <input className="border rounded px-3 py-2" placeholder="Name"
-                        value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                    <input className="border rounded px-3 py-2" placeholder="Address"
-                        value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
-                    <div className="grid grid-cols-2 gap-3">
-                        <input className="border rounded px-3 py-2" placeholder="City"
-                            value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
-                        <input className="border rounded px-3 py-2" placeholder="State (CO)"
-                            value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value.toUpperCase() })} />
-                    </div>
-                    <button
-                        className="rounded bg-black text-white px-4 py-2 disabled:opacity-50"
-                        disabled={saving || !form.name || !form.address || !form.city || form.state.length !== 2}
-                    >
-                        {saving ? "Saving..." : "Create"}
-                    </button>
-                </form>
+        <Link className="rounded bg-black text-white px-4 py-2" href="/admin/venues/new">
+          + Add venue
+        </Link>
+      </header>
 
-                {err && <p className="text-red-600 mt-3 whitespace-pre-wrap">{err}</p>}
-            </section>
+      {err && (
+        <div className="rounded border border-red-200 bg-red-50 p-3 text-red-700 whitespace-pre-wrap">
+          {err}
+        </div>
+      )}
 
-            <section className="rounded-lg border p-4">
-                <h2 className="font-medium">Existing venues</h2>
-                <ul className="mt-3 space-y-2">
-                    {venues.map((v) => (
-                        <li key={v._id} className="border rounded p-3">
-                            <div className="font-medium">{v.name}</div>
-                            <div className="text-gray-600 text-sm">
-                                {v.address} — {v.city}, {v.state}
-                            </div>
-                            <div className="text-xs text-gray-500 mt-1">id: {v._id}</div>
-                        </li>
-                    ))}
-                    {venues.length === 0 && <li className="text-gray-600">No venues yet.</li>}
-                </ul>
-            </section>
-        </main>
-    );
+      <section className="space-y-2">
+        {loading ? (
+          <div className="text-gray-600">Loading…</div>
+        ) : venues.length === 0 ? (
+          <div className="text-gray-600">No venues yet.</div>
+        ) : (
+          venues.map((v) => (
+            <div key={v._id} className="border rounded-lg p-4">
+              <div className="font-medium">{v.name}</div>
+              <div className="text-sm text-gray-600 mt-1">{fmtVenueLine(v)}</div>
+              <div className="text-xs text-gray-400 mt-2">id: {v._id}</div>
+            </div>
+          ))
+        )}
+      </section>
+
+      <footer className="flex items-center gap-2">
+        <button className="border rounded px-4 py-2" onClick={load} disabled={loading} type="button">
+          {loading ? "Loading…" : "Refresh"}
+        </button>
+        <Link className="border rounded px-4 py-2" href="/admin">
+          Back to dashboard
+        </Link>
+      </footer>
+    </main>
+  );
 }
