@@ -7,122 +7,188 @@ import { apiGet } from "@/lib/api";
 type Row = any;
 
 function ymd(d: Date) {
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function freqSummary(f: any) {
-    if (f.kind === "WEEKLY") return `Weekly: ${(f.byDay ?? []).join(", ")}`;
-    if (f.kind === "MONTHLY_NTH_WEEKDAY") return `Monthly: ${f.nth} ${f.weekday}`;
-    return f.kind;
+  if (f.kind === "WEEKLY") return `Weekly: ${(f.byDay ?? []).join(", ")}`;
+  if (f.kind === "MONTHLY_NTH_WEEKDAY") return `Monthly: ${f.nth} ${f.weekday}`;
+  return f.kind;
+}
+
+function asStr(v: any) {
+  if (v === null || v === undefined) return "";
+  return String(v);
+}
+
+/**
+ * Mongo ObjectId sometimes arrives as:
+ * - string "69536bd4..."
+ * - object { $oid: "69536bd4..." }
+ * - object with toString()
+ */
+function idToString(v: any): string {
+  if (!v) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "object") {
+    if (typeof v.$oid === "string") return v.$oid;
+    if (typeof v.toString === "function") {
+      const s = v.toString();
+      if (s && s !== "[object Object]") return s;
+    }
+  }
+  return "";
+}
+
+function isObjectIdString(id?: string) {
+  return !!id && /^[a-fA-F0-9]{24}$/.test(id);
+}
+
+function buildPlanLessonHref(r: any) {
+  const eventTypeId = idToString(r.eventTypeId ?? r.eventType?._id).trim();
+  const date = asStr(r.date).trim();
+  const startTime = asStr(r.startTime).trim();
+  const endTime = asStr(r.endTime).trim();
+  const endDayOffset = r.endDayOffset === 1 ? "1" : "0";
+  const title = asStr(r.eventType?.title ?? r.title).trim();
+
+  const sp = new URLSearchParams();
+  if (eventTypeId) sp.set("eventTypeId", eventTypeId);
+  if (date) sp.set("date", date);
+  if (startTime) sp.set("startTime", startTime);
+  if (endTime) sp.set("endTime", endTime);
+  sp.set("endDayOffset", endDayOffset);
+  if (title) sp.set("title", title);
+
+  return `/admin/plan-lesson?${sp.toString()}`;
+}
+
+function isUnplannedRow(r: any) {
+  if (r?.isCancelled) return false;
+
+  if (typeof r?.unplanned === "boolean") return r.unplanned;
+
+  // No event _id => virtual occurrence => unplanned
+  const eventId = idToString(r?._id);
+  if (!eventId) return true;
+
+  const lessons = Array.isArray(r?.lessons) ? r.lessons : [];
+  if (lessons.length === 0) return true;
+
+  return lessons.some((l: any) => !(asStr(l?.dance).trim().length > 0));
 }
 
 export default function LessonPlansDashboard() {
-    const today = useMemo(() => new Date(), []);
-    const [from, setFrom] = useState(ymd(today));
-    const [to, setTo] = useState(ymd(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 21)));
+  const today = useMemo(() => new Date(), []);
+  const [from, setFrom] = useState(ymd(today));
+  const [to, setTo] = useState(ymd(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 21)));
 
-    const [rows, setRows] = useState<Row[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [err, setErr] = useState<string | null>(null);
-    const [onlyUnplanned, setOnlyUnplanned] = useState(true);
+  const [rows, setRows] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [onlyUnplanned, setOnlyUnplanned] = useState(true);
 
-    async function load() {
-        setLoading(true);
-        setErr(null);
-        try {
-            const data = await apiGet<Row[]>(`/api/admin/lesson-plans?from=${from}&to=${to}`);
-            setRows(data);
-        } catch (e: any) {
-            setErr(e.message ?? String(e));
-        } finally {
-            setLoading(false);
-        }
+  async function load() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const data = await apiGet<Row[]>(`/api/admin/lesson-plans?from=${from}&to=${to}`);
+      setRows(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      setErr(e.message ?? String(e));
+    } finally {
+      setLoading(false);
     }
+  }
 
-    useEffect(() => {
-        load();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    const filtered = rows.filter((r) => (onlyUnplanned ? r.unplanned && !r.isCancelled : true));
+  const filtered = rows.filter((r) => (onlyUnplanned ? isUnplannedRow(r) : true));
 
-    return (
-        <main className="p-6 space-y-5">
-            <header className="flex items-start justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-semibold">Lesson Plans</h1>
-                    <p className="text-gray-600 mt-1">Pick an event and fill in dances, cancellations, and substitutes.</p>
+  return (
+    <main className="p-6 space-y-5">
+      <header>
+        <h1 className="text-2xl font-semibold">Lesson Plans</h1>
+        <p className="text-gray-600 mt-1">Pick an occurrence and plan lessons, cancellations, and substitutes.</p>
+      </header>
+
+      <section className="rounded-lg border p-4 space-y-3 max-w-3xl">
+        <div className="grid grid-cols-2 gap-3">
+          <label className="text-sm">
+            <div className="text-gray-600 mb-1">From</div>
+            <input className="border rounded px-3 py-2 w-full" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <div className="text-gray-600 mb-1">To</div>
+            <input className="border rounded px-3 py-2 w-full" value={to} onChange={(e) => setTo(e.target.value)} />
+          </label>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <label className="text-sm flex items-center gap-2">
+            <input type="checkbox" checked={onlyUnplanned} onChange={(e) => setOnlyUnplanned(e.target.checked)} />
+            Only unplanned
+          </label>
+
+          <button className="rounded bg-black text-white px-4 py-2 disabled:opacity-50" onClick={load} disabled={loading}>
+            {loading ? "Loading..." : "Load"}
+          </button>
+
+          <Link className="border rounded px-4 py-2 text-sm" href="/admin/add-event">
+            + Add one-off event
+          </Link>
+        </div>
+
+        {err && <p className="text-red-600 whitespace-pre-wrap">{err}</p>}
+      </section>
+
+      <section className="space-y-2">
+        {filtered.map((r) => {
+          // Persisted events must have a real Mongo ObjectId.
+          // Virtual occurrences use a composite key (e.g. "<eventTypeId>|<date>|<time>") in _id,
+          // which should NOT route to /admin/events/[id].
+          const eventId = idToString(r.eventId ?? r._id);
+          const isPersisted = isObjectIdString(eventId);
+
+          const fallbackKey = `${idToString(r.eventTypeId ?? r.eventType?._id)}|${asStr(r.date)}|${asStr(r.startTime)}`;
+          const key = isPersisted ? eventId : fallbackKey;
+
+          const href = isPersisted ? `/admin/events/${eventId}` : buildPlanLessonHref(r);
+
+          return (
+            <Link key={key} href={href} className="block border rounded-lg p-4 hover:bg-gray-50">
+              <div className="flex items-baseline justify-between gap-3">
+                <div className="font-medium">
+                  {r.eventType?.title ?? "Unknown Event"}{" "}
+                  {!isPersisted ? <span className="text-xs text-gray-500">(virtual)</span> : null}{" "}
+                  {r.isCancelled ? <span className="text-xs text-red-600">(cancelled)</span> : null}
                 </div>
-
-                <Link
-                    href="/admin/add-event"
-                    className="rounded bg-black text-white px-4 py-2 whitespace-nowrap"
-                >
-                    + Add one-off event
-                </Link>
-            </header>
-
-            <section className="rounded-lg border p-4 space-y-3 max-w-3xl">
-                <div className="grid grid-cols-2 gap-3">
-                    <label className="text-sm">
-                        <div className="text-gray-600 mb-1">From</div>
-                        <input className="border rounded px-3 py-2 w-full" value={from} onChange={(e) => setFrom(e.target.value)} />
-                    </label>
-                    <label className="text-sm">
-                        <div className="text-gray-600 mb-1">To</div>
-                        <input className="border rounded px-3 py-2 w-full" value={to} onChange={(e) => setTo(e.target.value)} />
-                    </label>
+                <div className="text-sm text-gray-600">
+                  {r.date} • {r.startTime}–{r.endTime}
+                  {r.endDayOffset === 1 ? " (+1 day)" : ""}
                 </div>
+              </div>
 
-                <div className="flex items-center gap-3">
-                    <label className="text-sm flex items-center gap-2">
-                        <input type="checkbox" checked={onlyUnplanned} onChange={(e) => setOnlyUnplanned(e.target.checked)} />
-                        Only unplanned
-                    </label>
+              <div className="text-sm text-gray-700 mt-1">
+                {r.venue?.name ?? "Unknown venue"}
+                {r.substitute ? <span className="text-gray-500"> • Sub: {r.substitute}</span> : null}
+              </div>
 
-                    <button className="rounded bg-black text-white px-4 py-2 disabled:opacity-50" onClick={load} disabled={loading}>
-                        {loading ? "Loading..." : "Load"}
-                    </button>
-                </div>
+              <div className="text-xs text-gray-500 mt-2">
+                {(r.frequencies ?? []).map(freqSummary).join(" | ") || "No frequency"}
+              </div>
+            </Link>
+          );
+        })}
 
-                {err && <p className="text-red-600 whitespace-pre-wrap">{err}</p>}
-            </section>
-
-            <section className="space-y-2">
-                {filtered.map((r) => (
-                    <Link
-                        key={String(r._id)}
-                        href={`/admin/plan/${String(r._id)}`}
-                        className="block border rounded-lg p-4 hover:bg-gray-50"
-                    >
-                        <div className="flex items-baseline justify-between gap-3">
-                            <div className="font-medium">
-                                {r.eventType?.title ?? "Unknown Event"}{" "}
-                                {r.isCancelled ? <span className="text-xs text-red-600">(cancelled)</span> : null}
-                            </div>
-                            <div className="text-sm text-gray-600">
-                                {r.date} • {r.startTime}–{r.endTime}
-                            </div>
-                        </div>
-
-                        <div className="text-sm text-gray-700 mt-1">
-                            {r.venue?.name ?? "Unknown venue"}
-                            {r.substitute ? <span className="text-gray-500"> • Sub: {r.substitute}</span> : null}
-                        </div>
-
-                        <div className="text-xs text-gray-500 mt-2">
-                            {(r.frequencies ?? []).map(freqSummary).join(" | ") || "No frequency"}
-                        </div>
-                    </Link>
-                ))}
-
-                {!loading && filtered.length === 0 && (
-                    <div className="text-gray-600">No matching events in that range.</div>
-                )}
-            </section>
-        </main>
-    );
+        {!loading && filtered.length === 0 && <div className="text-gray-600">No matching events in that range.</div>}
+      </section>
+    </main>
+  );
 }

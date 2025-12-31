@@ -5,39 +5,23 @@ import { dbBLD } from "@/lib/mongo";
 export const runtime = "nodejs";
 
 function isYMD(s: string | null) {
-  return !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
+  return !!s && /^\d{4}-\d{2}-\d{2}$/.test(s.trim());
 }
 
-function isValidObjectId(id: string | null) {
-  return !!id && ObjectId.isValid(id);
+function isTime12(s: string | null) {
+  return !!s && /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.test(s.trim());
 }
 
-function normalizeNullableString(v: unknown): string | null {
-  if (typeof v !== "string") return null;
-  const t = v.trim();
-  return t.length ? t : null;
-}
-
-function parseTimeToMinutes(t: string): number {
-  const m = String(t ?? "").trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (!m) return Number.MAX_SAFE_INTEGER;
+function parseTime12ToMinutes(t: string): number | null {
+  const m = t.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return null;
   let hh = Number(m[1]);
   const mm = Number(m[2]);
   const ap = m[3].toUpperCase();
+  if (hh < 1 || hh > 12 || mm < 0 || mm > 59) return null;
   if (hh === 12) hh = 0;
   if (ap === "PM") hh += 12;
   return hh * 60 + mm;
-}
-
-// ✅ UPDATED: whitelist "time" too
-function normalizeLessons(input: unknown) {
-  if (!Array.isArray(input)) return [];
-  return input.map((l: any) => ({
-    time: normalizeNullableString(l?.time), // NEW
-    dance: normalizeNullableString(l?.dance),
-    level: normalizeNullableString(l?.level),
-    link: normalizeNullableString(l?.link),
-  }));
 }
 
 export async function GET(req: Request) {
@@ -55,118 +39,92 @@ export async function GET(req: Request) {
 
   const db = await dbBLD();
 
-  // Fetch then sort in JS so "2:00 PM" comes before "5:00 PM"
   const events = await db
     .collection("events")
     .find({ date: { $gte: from, $lte: to } })
-    .sort({ date: 1 })
+    .sort({ date: 1, startTime: 1 })
     .toArray();
 
-  events.sort((a: any, b: any) => {
-    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
-    return parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime);
-  });
-
-  const out = events.map((e: any) => ({
-    ...e,
-    _id: String(e._id),
-    eventTypeId: e.eventTypeId ? String(e.eventTypeId) : undefined,
-  }));
-
-  return NextResponse.json(out);
+  return NextResponse.json(events);
 }
 
+// ✅ Convert virtual occurrence -> persisted Event
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => null);
+    const body = await req.json().catch(() => ({}));
 
-    const eventTypeId = body?.eventTypeId ?? null;
-    const date = body?.date ?? null;
-    const startTime = body?.startTime ?? null;
-    const durationMinutes = Number(body?.durationMinutes);
+    const eventTypeId = String(body.eventTypeId ?? "").trim();
+    const date = String(body.date ?? "").trim();
+    const startTime = String(body.startTime ?? "").trim();
+    const endTime = String(body.endTime ?? "").trim();
+    const endDayOffset: 0 | 1 = body.endDayOffset === 1 ? 1 : 0;
 
-    if (!isValidObjectId(eventTypeId)) {
+    if (!ObjectId.isValid(eventTypeId)) {
       return NextResponse.json({ error: "Invalid eventTypeId" }, { status: 400 });
     }
     if (!isYMD(date)) {
-      return NextResponse.json({ error: "Provide date as YYYY-MM-DD" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid date (YYYY-MM-DD)" }, { status: 400 });
     }
-    if (typeof startTime !== "string" || !startTime.trim()) {
-      return NextResponse.json({ error: "startTime is required" }, { status: 400 });
+    if (!isTime12(startTime)) {
+      return NextResponse.json({ error: "startTime must look like '6:30 PM'" }, { status: 400 });
     }
-    if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
-      return NextResponse.json({ error: "durationMinutes must be a positive number" }, { status: 400 });
-    }
-
-    const cancelled = !!body?.cancelled;
-    const cancellationNote = normalizeNullableString(body?.cancellationNote);
-
-    // substitute: allow either { substitute: "Name" } or { substituteName }
-    const substitute =
-      normalizeNullableString(body?.substitute) ??
-      normalizeNullableString(body?.substituteName) ??
-      null;
-
-    // cancelled events can persist empty lessons
-    const lessons = cancelled ? [] : normalizeLessons(body?.lessons);
-
-    const db = await dbBLD();
-    const events = db.collection("events");
-
-    const eventTypeObjId = new ObjectId(eventTypeId);
-
-    // occurrence identity (idempotent)
-    const filter = {
-      eventTypeId: eventTypeObjId,
-      date: String(date),
-      startTime: String(startTime).trim(),
-    };
-
-    const update = {
-      $set: {
-        eventTypeId: eventTypeObjId,
-        date: String(date),
-        startTime: String(startTime).trim(),
-        durationMinutes,
-        lessons, // ✅ now contains lesson.time
-        cancelled,
-        cancellationNote,
-        substitute,
-        updatedAt: new Date(),
-      },
-      $setOnInsert: {
-        createdAt: new Date(),
-      },
-    };
-
-    // updateOne + read-back is robust across driver behaviors
-    const u = await events.updateOne(filter, update, { upsert: true });
-
-    const eventId =
-      u.upsertedId && (u.upsertedId as any)._id ? (u.upsertedId as any)._id : null;
-
-    let event: any | null = null;
-
-    if (eventId) {
-      event = await events.findOne({ _id: eventId });
-    } else {
-      event = await events.findOne(filter);
+    if (!isTime12(endTime)) {
+      return NextResponse.json({ error: "endTime must look like '8:00 PM'" }, { status: 400 });
     }
 
-    if (!event) {
+    const startM = parseTime12ToMinutes(startTime);
+    const endM = parseTime12ToMinutes(endTime);
+    if (startM === null || endM === null) {
+      return NextResponse.json({ error: "Invalid startTime/endTime" }, { status: 400 });
+    }
+
+    if (endDayOffset === 0 && endM <= startM) {
       return NextResponse.json(
-        { error: "Event upsert succeeded but event could not be read back" },
-        { status: 500 }
+        { error: "endTime must be after startTime (or mark ends after midnight)" },
+        { status: 400 }
       );
     }
 
-    return NextResponse.json({
-      eventId: String(event._id),
-      event: {
-        ...event,
-        _id: String(event._id),
-        eventTypeId: event.eventTypeId ? String(event.eventTypeId) : undefined,
+    const durationMinutes = endDayOffset === 1 ? endM + 24 * 60 - startM : endM - startM;
+
+    const db = await dbBLD();
+    const etId = new ObjectId(eventTypeId);
+
+    // Ensure event type exists
+    const exists = await db.collection("event_types").findOne({ _id: etId });
+    if (!exists) {
+      return NextResponse.json({ error: "eventType not found" }, { status: 404 });
+    }
+
+    // Upsert by deterministic key: eventTypeId + date + startTime
+    const res = await db.collection("events").findOneAndUpdate(
+      { eventTypeId: etId, date, startTime },
+      {
+        $setOnInsert: {
+          eventTypeId: etId,
+          date,
+          startTime,
+          endTime,
+          endDayOffset,
+          durationMinutes,
+
+          isCancelled: false,
+          cancelNote: null,
+          substitute: null,
+          lessons: [],
+
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
       },
+      { upsert: true, returnDocument: "after" }
+    );
+
+    const doc = res.value;
+    return NextResponse.json({
+      ok: true,
+      eventId: doc?._id ? String(doc._id) : null,
+      created: !!res.lastErrorObject?.upserted,
     });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? String(e) }, { status: 500 });
